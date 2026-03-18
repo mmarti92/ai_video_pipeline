@@ -8,7 +8,7 @@ services:
     image: ai_video_pipeline:latest
     environment:
       PG_CONNECTION_STRING: "${PG_CONNECTION_STRING}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OUTPUT_DIR: /app/output
       PIPELINE_BATCH_SIZE: "${PIPELINE_BATCH_SIZE:-10}"
       PIPELINE_POLL_INTERVAL_SECONDS: "${PIPELINE_POLL_INTERVAL_SECONDS:-60}"
@@ -26,7 +26,7 @@ services:
     command: ["--continuous"]
     environment:
       PG_CONNECTION_STRING: "${PG_CONNECTION_STRING}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OUTPUT_DIR: /app/output
       PIPELINE_BATCH_SIZE: "${PIPELINE_BATCH_SIZE:-10}"
       PIPELINE_POLL_INTERVAL_SECONDS: "${PIPELINE_POLL_INTERVAL_SECONDS:-60}"

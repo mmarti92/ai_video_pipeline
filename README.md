@@ -14,7 +14,7 @@ main.py
  └─ pipeline.py           # orchestration loop
      ├─ database.py       # CockroachDB / PostgreSQL CRUD
      └─ video_generator.py
-         ├─ OpenAI API    # AI-generated narration script (optional)
+         ├─ Anthropic API  # AI-generated narration script (Claude, optional)
          ├─ gTTS          # text-to-speech audio
          ├─ matplotlib    # stock chart image
          └─ moviepy       # compose chart + audio → MP4
@@ -44,7 +44,7 @@ main.py
 
 ```bash
 cp .env.example .env
-# Edit .env and set PG_CONNECTION_STRING (and optionally OPENAI_API_KEY)
+# Edit .env and set PG_CONNECTION_STRING (and optionally ANTHROPIC_API_KEY)
 ```
 
 #### 2. Build the image
@@ -90,7 +90,7 @@ make install
 
 ```bash
 cp .env.example .env
-# Edit .env and set PG_CONNECTION_STRING (and optionally OPENAI_API_KEY)
+# Edit .env and set PG_CONNECTION_STRING (and optionally ANTHROPIC_API_KEY)
 ```
 
 #### 3. Seed the database
@@ -129,7 +129,7 @@ python main.py --seed AAPL "Apple Inc. Weekly Analysis"
 |---|---|---|---|
 | `PG_CONNECTION_STRING` | ✅ | — | Full PostgreSQL/CockroachDB DSN |
 | `CRDB_CA_CERT_URL` | ❌ | — | CockroachDB Cloud cluster CA cert URL (auto-downloads on first run) |
-| `OPENAI_API_KEY` | ❌ | — | Enables AI-generated scripts |
+| `ANTHROPIC_API_KEY` | ❌ | — | Enables AI-generated scripts (Claude) |
 | `OUTPUT_DIR` | ❌ | `./output` | Directory for generated MP4 files |
 | `PIPELINE_BATCH_SIZE` | ❌ | `10` | Jobs processed per run |
 | `PIPELINE_POLL_INTERVAL_SECONDS` | ❌ | `60` | Sleep between batches (continuous mode) |

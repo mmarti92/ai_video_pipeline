@@ -28,8 +28,8 @@ PG_CONNECTION_STRING: str = _require_env("PG_CONNECTION_STRING")
 # ~/.postgresql/root.crt so that sslmode=verify-full works out of the box.
 CRDB_CA_CERT_URL: str = os.environ.get("CRDB_CA_CERT_URL", "")
 
-# OpenAI
-OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
+# Anthropic (Claude)
+ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # Output directory for generated videos
 OUTPUT_DIR: str = os.environ.get("OUTPUT_DIR", "./output")
