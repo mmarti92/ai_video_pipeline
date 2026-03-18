@@ -105,6 +105,37 @@ class TestRenderChart:
         assert chart_path.endswith(".png")
 
 
+class TestComposeVideo:
+    def test_uses_moviepy_v2_api(self, tmp_path):
+        """_compose_video must use the moviepy 2.x with_duration/with_audio API."""
+        from video_generator import _compose_video
+        from unittest.mock import MagicMock, patch, PropertyMock
+
+        mock_audio = MagicMock()
+        mock_audio.duration = 5.0
+
+        mock_image = MagicMock()
+        mock_image.with_duration.return_value = mock_image
+        mock_image.with_audio.return_value = mock_image
+
+        with (
+            patch("video_generator.AudioFileClip", return_value=mock_audio),
+            patch("video_generator.ImageClip", return_value=mock_image),
+        ):
+            result = _compose_video(
+                str(tmp_path / "chart.png"),
+                str(tmp_path / "audio.mp3"),
+                tmp_path,
+                "job-xyz",
+            )
+
+        # with_duration and with_audio (moviepy 2.x) must be called, not set_duration/set_audio
+        mock_image.with_duration.assert_called_once_with(5.0)
+        mock_image.with_audio.assert_called_once_with(mock_audio)
+        mock_image.write_videofile.assert_called_once()
+        assert result.endswith("job-xyz.mp4")
+
+
 class TestGenerateVideo:
     def test_end_to_end_with_mocks(self, tmp_path):
         """Ensure generate_video wires together all sub-steps and returns a path."""

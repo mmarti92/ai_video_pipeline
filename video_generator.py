@@ -144,7 +144,7 @@ def _template_script(
 
 def _render_chart(stock_symbol: str, output_path: Path, job_id: str) -> str:
     """Render a simulated price-movement bar chart and return the file path."""
-    _MAX_RNG_SEED = 2**31  # numpy default_rng requires seed within [0, 2^32)
+    _MAX_RNG_SEED = 2**32  # numpy default_rng accepts seeds in [0, 2^32)
     rng = np.random.default_rng(seed=abs(hash(stock_symbol)) % _MAX_RNG_SEED)
     days = [f"Day {i+1}" for i in range(7)]
     prices = 100 + np.cumsum(rng.uniform(-3, 3, size=7))
@@ -193,8 +193,8 @@ def _compose_video(
     audio_clip = AudioFileClip(audio_path)
     image_clip = (
         ImageClip(chart_path)
-        .set_duration(audio_clip.duration)
-        .set_audio(audio_clip)
+        .with_duration(audio_clip.duration)
+        .with_audio(audio_clip)
     )
     video_file = str(output_path / f"{job_id}.mp4")
     image_clip.write_videofile(

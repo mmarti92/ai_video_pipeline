@@ -38,32 +38,84 @@ main.py
 
 ## Quick start
 
-### 1. Install dependencies
+### Option A — Docker (recommended)
 
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Configure environment
+#### 1. Configure environment
 
 ```bash
 cp .env.example .env
 # Edit .env and set PG_CONNECTION_STRING (and optionally OPENAI_API_KEY)
 ```
 
-### 3. Run the pipeline (one batch)
+#### 2. Build the image
 
 ```bash
-python main.py
+make docker-build
+# or: docker compose build
 ```
 
-### 4. Run continuously (polls for new jobs every 60 s)
+#### 3. Seed the database with sample stock symbols
 
 ```bash
-python main.py --continuous
+make docker-seed
+# or: docker compose --profile seed run --rm seed
 ```
 
-### 5. Insert a test job
+#### 4. Run the pipeline (one batch)
+
+```bash
+make docker-run
+# or: docker compose run --rm pipeline
+```
+
+#### 5. Run continuously (long-running service)
+
+```bash
+make docker-continuous
+# or: docker compose --profile continuous up -d pipeline-continuous
+```
+
+---
+
+### Option B — Local Python
+
+#### 1. Install dependencies
+
+```bash
+make install
+# or: pip install -r requirements.txt
+```
+
+#### 2. Configure environment
+
+```bash
+cp .env.example .env
+# Edit .env and set PG_CONNECTION_STRING (and optionally OPENAI_API_KEY)
+```
+
+#### 3. Seed the database
+
+```bash
+make seed
+# or: python seed_stocks.py
+# Custom symbols: python seed_stocks.py --symbols AAPL MSFT NVDA
+```
+
+#### 4. Run the pipeline (one batch)
+
+```bash
+make run
+# or: python main.py
+```
+
+#### 5. Run continuously (polls for new jobs every 60 s)
+
+```bash
+make run-continuous
+# or: python main.py --continuous
+```
+
+#### 6. Insert a single test job
 
 ```bash
 python main.py --seed AAPL "Apple Inc. Weekly Analysis"
@@ -85,20 +137,17 @@ python main.py --seed AAPL "Apple Inc. Weekly Analysis"
 
 ## Database migration
 
-Apply the schema migration manually:
+Applied automatically on startup. To apply manually:
 
 ```bash
 psql "$PG_CONNECTION_STRING" -f migrations/001_create_pipeline_videos_stocks_ia.sql
 ```
-
-The pipeline also calls `CREATE TABLE IF NOT EXISTS` on startup, so the
-table is created automatically if it does not exist yet.
 
 ---
 
 ## Tests
 
 ```bash
-pip install pytest
-pytest tests/
+make test
+# or: pytest tests/
 ```
