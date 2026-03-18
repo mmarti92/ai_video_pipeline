@@ -133,6 +133,12 @@ python main.py --seed AAPL "Apple Inc. Weekly Analysis"
 | `PIPELINE_BATCH_SIZE` | ❌ | `10` | Jobs processed per run |
 | `PIPELINE_POLL_INTERVAL_SECONDS` | ❌ | `60` | Sleep between batches (continuous mode) |
 
+> **CockroachDB Cloud note:** Connection strings with `sslmode=verify-full`
+> require a trusted root CA certificate.  The application automatically
+> locates the system CA bundle (e.g.
+> `/etc/ssl/certs/ca-certificates.crt`); no manual certificate download is
+> needed.
+
 ---
 
 ## Database migration

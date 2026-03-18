@@ -8,8 +8,10 @@ against the `pipeline_videos_stocks_ia` table.
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import contextmanager
 from typing import Generator, Optional
+from urllib.parse import urlparse, parse_qs, urlunparse
 
 import psycopg2
 import psycopg2.extras
@@ -22,11 +24,78 @@ TABLE_NAME = "pipeline_videos_stocks_ia"
 # Module-level connection pool (initialised by init_db)
 _pool: Optional[ThreadedConnectionPool] = None
 
+# Well-known CA bundle paths across Linux distributions and macOS.
+_CA_BUNDLE_CANDIDATES = [
+    "/etc/ssl/certs/ca-certificates.crt",  # Debian / Ubuntu
+    "/etc/pki/tls/certs/ca-bundle.crt",    # RHEL / CentOS / Fedora
+    "/etc/ssl/ca-bundle.pem",              # openSUSE
+    "/etc/ssl/cert.pem",                   # Alpine / macOS
+]
+
+
+def _find_ca_bundle() -> Optional[str]:
+    """Locate the system CA certificate bundle."""
+    for path in _CA_BUNDLE_CANDIDATES:
+        if os.path.isfile(path):
+            return path
+    try:                           # pragma: no cover – certifi may not be installed
+        import certifi
+        return certifi.where()
+    except ImportError:
+        return None
+
+
+def _ensure_sslrootcert(connection_string: str) -> str:
+    """Append ``sslrootcert`` to the DSN when CockroachDB Cloud needs it.
+
+    CockroachDB Cloud connection strings normally carry
+    ``sslmode=verify-full``.  libpq then looks for a root CA at
+    ``~/.postgresql/root.crt``, which rarely exists inside CI runners or
+    Docker containers.
+
+    When:
+      * *sslmode* is ``verify-full`` or ``verify-ca``, **and**
+      * no ``sslrootcert`` parameter is already present, **and**
+      * the default ``~/.postgresql/root.crt`` file does not exist,
+
+    this helper appends ``sslrootcert=<system CA bundle>`` so that TLS
+    verification succeeds out of the box.
+    """
+    parsed = urlparse(connection_string)
+    params = parse_qs(parsed.query)
+
+    sslmode = params.get("sslmode", [""])[0]
+    if sslmode not in ("verify-full", "verify-ca"):
+        return connection_string
+
+    if "sslrootcert" in params:
+        return connection_string
+
+    default_root_cert = os.path.expanduser("~/.postgresql/root.crt")
+    if os.path.isfile(default_root_cert):
+        return connection_string
+
+    ca_bundle = _find_ca_bundle()
+    if ca_bundle is None:
+        logger.warning(
+            "sslmode=%s but no system CA bundle found; "
+            "the connection may fail.",
+            sslmode,
+        )
+        return connection_string
+
+    separator = "&" if parsed.query else ""
+    new_query = f"{parsed.query}{separator}sslrootcert={ca_bundle}"
+    result = urlunparse(parsed._replace(query=new_query))
+    logger.info("Appended sslrootcert=%s for TLS verification.", ca_bundle)
+    return result
+
 
 def init_db(connection_string: str, min_conn: int = 1, max_conn: int = 5) -> None:
     """Initialise the connection pool and ensure the table exists."""
     global _pool
-    _pool = ThreadedConnectionPool(min_conn, max_conn, dsn=connection_string)
+    dsn = _ensure_sslrootcert(connection_string)
+    _pool = ThreadedConnectionPool(min_conn, max_conn, dsn=dsn)
     logger.info("Database connection pool initialised.")
     _create_table_if_not_exists()
 
