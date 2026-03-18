@@ -1,7 +1,7 @@
 """
 Unit tests for the pipeline and video_generator modules.
 
-External dependencies (database, OpenAI, gTTS, moviepy) are all mocked.
+External dependencies (database, Anthropic, gTTS, moviepy) are all mocked.
 """
 
 from __future__ import annotations

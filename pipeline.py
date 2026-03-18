@@ -55,7 +55,7 @@ def run_once(batch_size: int | None = None) -> int:
                 title=job.get("title"),
                 description=job.get("description"),
                 output_dir=config.OUTPUT_DIR,
-                openai_api_key=config.OPENAI_API_KEY,
+                anthropic_api_key=config.ANTHROPIC_API_KEY,
             )
             database.mark_completed(job_id, output_path)
             logger.info("[%s] Completed. Video saved to: %s", job_id, output_path)

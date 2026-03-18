@@ -2,7 +2,7 @@
 Video generator module for the AI video pipeline.
 
 Generates a short stock-analysis video for a given stock symbol by:
-  1. Generating a script with the OpenAI Chat API (if an API key is provided)
+  1. Generating a script with the Anthropic Claude API (if an API key is provided)
      or falling back to a template-based script.
   2. Synthesising an audio narration with gTTS.
   3. Creating a bar chart image with matplotlib.
@@ -33,7 +33,7 @@ def generate_video(
     title: Optional[str],
     description: Optional[str],
     output_dir: str,
-    openai_api_key: str = "",
+    anthropic_api_key: str = "",
 ) -> str:
     """
     Generate a video for *stock_symbol* and return the path to the MP4 file.
@@ -45,7 +45,7 @@ def generate_video(
     title:           Optional video title stored in the database.
     description:     Optional extra context stored in the database.
     output_dir:      Directory where generated files are saved.
-    openai_api_key:  When provided the script is AI-generated; otherwise a
+    anthropic_api_key:  When provided the script is AI-generated; otherwise a
                      template is used.
 
     Returns
@@ -55,7 +55,7 @@ def generate_video(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    script = _generate_script(stock_symbol, title, description, openai_api_key)
+    script = _generate_script(stock_symbol, title, description, anthropic_api_key)
     logger.info("[%s] Script generated (%d chars).", job_id, len(script))
 
     chart_path = _render_chart(stock_symbol, output_path, job_id)
@@ -85,28 +85,28 @@ def _generate_script(
     stock_symbol: str,
     title: Optional[str],
     description: Optional[str],
-    openai_api_key: str,
+    anthropic_api_key: str,
 ) -> str:
     """Return a narration script for the stock video."""
-    if openai_api_key:
+    if anthropic_api_key:
         try:
-            return _openai_script(stock_symbol, title, description, openai_api_key)
+            return _claude_script(stock_symbol, title, description, anthropic_api_key)
         except Exception as exc:
-            logger.warning("OpenAI script generation failed (%s); using template.", exc)
+            logger.warning("Claude script generation failed (%s); using template.", exc)
 
     return _template_script(stock_symbol, title, description)
 
 
-def _openai_script(
+def _claude_script(
     stock_symbol: str,
     title: Optional[str],
     description: Optional[str],
-    openai_api_key: str,
+    anthropic_api_key: str,
 ) -> str:
-    """Call the OpenAI Chat API to generate a 30-second narration script."""
-    import openai  # lazy import – only required when key is present
+    """Call the Anthropic Claude API to generate a 30-second narration script."""
+    import anthropic  # lazy import – only required when key is present
 
-    client = openai.OpenAI(api_key=openai_api_key)
+    client = anthropic.Anthropic(api_key=anthropic_api_key)
     context = description or ""
     prompt = (
         f"Write a concise, engaging 30-second narration script for a stock analysis "
@@ -115,12 +115,12 @@ def _openai_script(
         + (f" Additional context: {context}." if context else "")
         + " Keep the tone professional and informative. Do not include stage directions."
     )
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
         max_tokens=200,
+        messages=[{"role": "user", "content": prompt}],
     )
-    return response.choices[0].message.content.strip()
+    return response.content[0].text.strip()
 
 
 def _template_script(
@@ -128,7 +128,7 @@ def _template_script(
     title: Optional[str],
     description: Optional[str],
 ) -> str:
-    """Return a template-based narration script when OpenAI is unavailable."""
+    """Return a template-based narration script when Claude is unavailable."""
     headline = title or f"{stock_symbol} Stock Analysis"
     context = f" {description}" if description else ""
     return textwrap.dedent(f"""
