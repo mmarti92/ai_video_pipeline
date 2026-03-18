@@ -115,6 +115,8 @@ def _seed_forecasts(symbols: list[str]) -> int:
 
 def _forecast_exists(stock_symbol: str) -> bool:
     """Return True if forecasts already exist for this stock symbol."""
+    # FORECASTS_TABLE_NAME is a module-level constant defined in database.py, not user
+    # input, so embedding it directly in the query string is safe here.
     sql = f"""
         SELECT 1 FROM {database.FORECASTS_TABLE_NAME}
         WHERE stock_symbol = %s
