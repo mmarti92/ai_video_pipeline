@@ -21,6 +21,7 @@ from psycopg2.pool import ThreadedConnectionPool
 logger = logging.getLogger(__name__)
 
 TABLE_NAME = "pipeline_videos_stocks_ia"
+FORECASTS_TABLE_NAME = "asset_forecasts"
 
 # Module-level connection pool (initialised by init_db)
 _pool: Optional[ThreadedConnectionPool] = None
@@ -146,6 +147,7 @@ def init_db(
     _pool = ThreadedConnectionPool(min_conn, max_conn, dsn=dsn)
     logger.info("Database connection pool initialised.")
     _create_table_if_not_exists()
+    _create_forecasts_table_if_not_exists()
 
 
 def close_db() -> None:
@@ -194,6 +196,27 @@ def _create_table_if_not_exists() -> None:
         with conn.cursor() as cur:
             cur.execute(ddl)
     logger.info("Table '%s' verified / created.", TABLE_NAME)
+
+
+def _create_forecasts_table_if_not_exists() -> None:
+    """Create the asset_forecasts table if it does not exist."""
+    ddl = f"""
+        CREATE TABLE IF NOT EXISTS {FORECASTS_TABLE_NAME} (
+            id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+            stock_symbol    VARCHAR(10)  NOT NULL,
+            forecast_date   DATE         NOT NULL,
+            current_price   DECIMAL(12, 2) NOT NULL,
+            predicted_price DECIMAL(12, 2) NOT NULL,
+            confidence      DECIMAL(5, 2),
+            analyst_rating  VARCHAR(20),
+            key_factors     TEXT,
+            created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+        );
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(ddl)
+    logger.info("Table '%s' verified / created.", FORECASTS_TABLE_NAME)
 
 
 # ---------------------------------------------------------------------------
@@ -265,4 +288,49 @@ def insert_job(
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, (stock_symbol, title, description))
+            return cur.fetchone()[0]
+
+
+# ---------------------------------------------------------------------------
+# Forecast helpers
+# ---------------------------------------------------------------------------
+
+def fetch_forecasts(stock_symbol: str) -> list[dict]:
+    """Return all forecast rows for *stock_symbol*, ordered by date."""
+    sql = f"""
+        SELECT stock_symbol, forecast_date, current_price, predicted_price,
+               confidence, analyst_rating, key_factors
+        FROM   {FORECASTS_TABLE_NAME}
+        WHERE  stock_symbol = %s
+        ORDER  BY forecast_date
+    """
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (stock_symbol,))
+            return [dict(row) for row in cur.fetchall()]
+
+
+def insert_forecast(
+    stock_symbol: str,
+    forecast_date: str,
+    current_price: float,
+    predicted_price: float,
+    confidence: Optional[float] = None,
+    analyst_rating: Optional[str] = None,
+    key_factors: Optional[str] = None,
+) -> str:
+    """Insert a forecast row and return its UUID."""
+    sql = f"""
+        INSERT INTO {FORECASTS_TABLE_NAME}
+            (stock_symbol, forecast_date, current_price, predicted_price,
+             confidence, analyst_rating, key_factors)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (
+                stock_symbol, forecast_date, current_price, predicted_price,
+                confidence, analyst_rating, key_factors,
+            ))
             return cur.fetchone()[0]

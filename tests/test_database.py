@@ -49,11 +49,12 @@ class TestInitDb:
             database._pool = None
             database.init_db("postgresql://test/db")
             assert database._pool is mock_pool
-            # Ensure a CREATE TABLE statement was executed
+            # Ensure CREATE TABLE statements were executed for both tables
             executed_sqls = [
                 str(c.args[0]) for c in mock_cursor.execute.call_args_list
             ]
             assert any("CREATE TABLE" in sql.upper() for sql in executed_sqls)
+            assert any("asset_forecasts" in sql for sql in executed_sqls)
 
 
 class TestFetchPendingJobs:
@@ -109,6 +110,56 @@ class TestInsertJob:
         assert "INSERT" in sql.upper()
         assert params[0] == "TSLA"
         assert params[1] == "Tesla Analysis"
+
+
+class TestFetchForecasts:
+    def test_returns_list_of_dicts(self):
+        import database
+        fake_row = {
+            "stock_symbol": "AAPL",
+            "forecast_date": "2026-03-18",
+            "current_price": 178.50,
+            "predicted_price": 195.20,
+            "confidence": 0.82,
+            "analyst_rating": "buy",
+            "key_factors": "Strong sales",
+        }
+        mock_pool, mock_conn, mock_cursor = _make_mock_pool(rows=[fake_row])
+        mock_cursor.fetchall.return_value = [fake_row]
+        database._pool = mock_pool
+        result = database.fetch_forecasts("AAPL")
+        assert isinstance(result, list)
+        mock_cursor.execute.assert_called_once()
+        assert mock_cursor.execute.call_args.args[1] == ("AAPL",)
+
+    def test_returns_empty_list_when_no_rows(self):
+        import database
+        mock_pool, mock_conn, mock_cursor = _make_mock_pool(rows=[])
+        database._pool = mock_pool
+        result = database.fetch_forecasts("UNKNOWN")
+        assert result == []
+
+
+class TestInsertForecast:
+    def test_insert_returns_uuid(self):
+        import database
+        mock_pool, mock_conn, mock_cursor = _make_mock_pool()
+        mock_cursor.fetchone.return_value = ("forecast-uuid",)
+        database._pool = mock_pool
+        result = database.insert_forecast(
+            stock_symbol="AAPL",
+            forecast_date="2026-03-18",
+            current_price=178.50,
+            predicted_price=195.20,
+            confidence=0.82,
+            analyst_rating="buy",
+            key_factors="Strong sales",
+        )
+        assert result == "forecast-uuid"
+        sql, params = mock_cursor.execute.call_args.args
+        assert "INSERT" in sql.upper()
+        assert "asset_forecasts" in sql
+        assert params[0] == "AAPL"
 
 
 # ---------------------------------------------------------------------------

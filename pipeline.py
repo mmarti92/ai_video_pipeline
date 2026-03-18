@@ -49,6 +49,8 @@ def run_once(batch_size: int | None = None) -> int:
 
         database.mark_processing(job_id)
         try:
+            forecasts = database.fetch_forecasts(stock_symbol)
+            logger.info("[%s] Fetched %d forecast(s) for %s.", job_id, len(forecasts), stock_symbol)
             output_path = generate_video(
                 job_id=job_id,
                 stock_symbol=stock_symbol,
@@ -56,6 +58,7 @@ def run_once(batch_size: int | None = None) -> int:
                 description=job.get("description"),
                 output_dir=config.OUTPUT_DIR,
                 anthropic_api_key=config.ANTHROPIC_API_KEY,
+                forecasts=forecasts,
             )
             database.mark_completed(job_id, output_path)
             logger.info("[%s] Completed. Video saved to: %s", job_id, output_path)
