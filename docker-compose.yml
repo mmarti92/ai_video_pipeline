@@ -1,0 +1,50 @@
+services:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Run one batch of pending jobs and exit
+  # ──────────────────────────────────────────────────────────────────────────
+  pipeline:
+    build: .
+    image: ai_video_pipeline:latest
+    environment:
+      PG_CONNECTION_STRING: "${PG_CONNECTION_STRING}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OUTPUT_DIR: /app/output
+      PIPELINE_BATCH_SIZE: "${PIPELINE_BATCH_SIZE:-10}"
+      PIPELINE_POLL_INTERVAL_SECONDS: "${PIPELINE_POLL_INTERVAL_SECONDS:-60}"
+    volumes:
+      # Generated MP4 files are written here on the host
+      - ./output:/app/output
+    restart: "no"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Continuously poll for new jobs (long-running service)
+  # ──────────────────────────────────────────────────────────────────────────
+  pipeline-continuous:
+    build: .
+    image: ai_video_pipeline:latest
+    command: ["--continuous"]
+    environment:
+      PG_CONNECTION_STRING: "${PG_CONNECTION_STRING}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OUTPUT_DIR: /app/output
+      PIPELINE_BATCH_SIZE: "${PIPELINE_BATCH_SIZE:-10}"
+      PIPELINE_POLL_INTERVAL_SECONDS: "${PIPELINE_POLL_INTERVAL_SECONDS:-60}"
+    volumes:
+      - ./output:/app/output
+    restart: unless-stopped
+    profiles:
+      - continuous
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Seed the database with sample stock-analysis jobs
+  # ──────────────────────────────────────────────────────────────────────────
+  seed:
+    build: .
+    image: ai_video_pipeline:latest
+    entrypoint: ["python", "seed_stocks.py"]
+    environment:
+      PG_CONNECTION_STRING: "${PG_CONNECTION_STRING}"
+    restart: "no"
+    profiles:
+      - seed
