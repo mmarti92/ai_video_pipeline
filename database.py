@@ -15,6 +15,7 @@ from urllib.parse import urlparse, parse_qs, urlunparse
 
 import psycopg2
 import psycopg2.extras
+import requests
 from psycopg2.pool import ThreadedConnectionPool
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,34 @@ _CA_BUNDLE_CANDIDATES = [
     "/etc/ssl/cert.pem",                   # Alpine / macOS
 ]
 
+# Default path where libpq looks for the root CA certificate.
+_DEFAULT_ROOT_CERT = os.path.expanduser("~/.postgresql/root.crt")
+
+
+def _download_crdb_cert(url: str) -> Optional[str]:
+    """Download the CockroachDB cluster CA cert to ``~/.postgresql/root.crt``.
+
+    Returns the path on success, or *None* on failure.  If the file
+    already exists it is **not** re-downloaded.
+    """
+    if os.path.isfile(_DEFAULT_ROOT_CERT):
+        logger.info("CockroachDB root cert already present at %s.", _DEFAULT_ROOT_CERT)
+        return _DEFAULT_ROOT_CERT
+
+    try:
+        os.makedirs(os.path.dirname(_DEFAULT_ROOT_CERT), exist_ok=True)
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+        with open(_DEFAULT_ROOT_CERT, "wb") as f:
+            f.write(resp.content)
+        logger.info("Downloaded CockroachDB root cert to %s.", _DEFAULT_ROOT_CERT)
+        return _DEFAULT_ROOT_CERT
+    except Exception:
+        logger.warning(
+            "Failed to download CockroachDB cert from %s.", url, exc_info=True
+        )
+        return None
+
 
 def _find_ca_bundle() -> Optional[str]:
     """Locate the system CA certificate bundle."""
@@ -45,7 +74,10 @@ def _find_ca_bundle() -> Optional[str]:
         return None
 
 
-def _ensure_sslrootcert(connection_string: str) -> str:
+def _ensure_sslrootcert(
+    connection_string: str,
+    crdb_ca_cert_url: str = "",
+) -> str:
     """Append ``sslrootcert`` to the DSN when CockroachDB Cloud needs it.
 
     CockroachDB Cloud connection strings normally carry
@@ -53,13 +85,13 @@ def _ensure_sslrootcert(connection_string: str) -> str:
     ``~/.postgresql/root.crt``, which rarely exists inside CI runners or
     Docker containers.
 
-    When:
-      * *sslmode* is ``verify-full`` or ``verify-ca``, **and**
-      * no ``sslrootcert`` parameter is already present, **and**
-      * the default ``~/.postgresql/root.crt`` file does not exist,
+    Resolution order:
 
-    this helper appends ``sslrootcert=<system CA bundle>`` so that TLS
-    verification succeeds out of the box.
+    1. ``sslrootcert`` already in DSN → no-op.
+    2. ``~/.postgresql/root.crt`` already on disk → no-op (libpq finds it).
+    3. *crdb_ca_cert_url* is set → download the cluster cert to
+       ``~/.postgresql/root.crt`` and let libpq find it.
+    4. Fall back to appending the system CA bundle path.
     """
     parsed = urlparse(connection_string)
     params = parse_qs(parsed.query)
@@ -71,9 +103,15 @@ def _ensure_sslrootcert(connection_string: str) -> str:
     if "sslrootcert" in params:
         return connection_string
 
-    default_root_cert = os.path.expanduser("~/.postgresql/root.crt")
-    if os.path.isfile(default_root_cert):
+    if os.path.isfile(_DEFAULT_ROOT_CERT):
         return connection_string
+
+    # Try downloading the cluster-specific cert.
+    if crdb_ca_cert_url:
+        downloaded = _download_crdb_cert(crdb_ca_cert_url)
+        if downloaded:
+            # libpq will now find ~/.postgresql/root.crt automatically.
+            return connection_string
 
     ca_bundle = _find_ca_bundle()
     if ca_bundle is None:
@@ -91,10 +129,15 @@ def _ensure_sslrootcert(connection_string: str) -> str:
     return result
 
 
-def init_db(connection_string: str, min_conn: int = 1, max_conn: int = 5) -> None:
+def init_db(
+    connection_string: str,
+    min_conn: int = 1,
+    max_conn: int = 5,
+    crdb_ca_cert_url: str = "",
+) -> None:
     """Initialise the connection pool and ensure the table exists."""
     global _pool
-    dsn = _ensure_sslrootcert(connection_string)
+    dsn = _ensure_sslrootcert(connection_string, crdb_ca_cert_url=crdb_ca_cert_url)
     _pool = ThreadedConnectionPool(min_conn, max_conn, dsn=dsn)
     logger.info("Database connection pool initialised.")
     _create_table_if_not_exists()

@@ -23,6 +23,11 @@ def _require_env(name: str) -> str:
 # Database
 PG_CONNECTION_STRING: str = _require_env("PG_CONNECTION_STRING")
 
+# Optional: CockroachDB Cloud cluster CA certificate download URL.
+# When set, the certificate is automatically downloaded to
+# ~/.postgresql/root.crt so that sslmode=verify-full works out of the box.
+CRDB_CA_CERT_URL: str = os.environ.get("CRDB_CA_CERT_URL", "")
+
 # OpenAI
 OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
 

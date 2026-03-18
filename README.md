@@ -128,16 +128,17 @@ python main.py --seed AAPL "Apple Inc. Weekly Analysis"
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `PG_CONNECTION_STRING` | ✅ | — | Full PostgreSQL/CockroachDB DSN |
+| `CRDB_CA_CERT_URL` | ❌ | — | CockroachDB Cloud cluster CA cert URL (auto-downloads on first run) |
 | `OPENAI_API_KEY` | ❌ | — | Enables AI-generated scripts |
 | `OUTPUT_DIR` | ❌ | `./output` | Directory for generated MP4 files |
 | `PIPELINE_BATCH_SIZE` | ❌ | `10` | Jobs processed per run |
 | `PIPELINE_POLL_INTERVAL_SECONDS` | ❌ | `60` | Sleep between batches (continuous mode) |
 
 > **CockroachDB Cloud note:** Connection strings with `sslmode=verify-full`
-> require a trusted root CA certificate.  The application automatically
-> locates the system CA bundle (e.g.
-> `/etc/ssl/certs/ca-certificates.crt`); no manual certificate download is
-> needed.
+> require a trusted root CA certificate.  When `CRDB_CA_CERT_URL` is set the
+> cluster certificate is automatically downloaded to `~/.postgresql/root.crt`
+> on first run.  Otherwise the application falls back to the system CA bundle
+> (e.g. `/etc/ssl/certs/ca-certificates.crt`).
 
 ---
 
