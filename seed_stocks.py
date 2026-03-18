@@ -34,7 +34,7 @@ DEFAULT_SYMBOLS: list[tuple[str, str]] = [
 
 def seed(symbols: list[tuple[str, str]]) -> None:
     """Insert pending jobs for each (symbol, title) pair that is not already present."""
-    database.init_db(config.PG_CONNECTION_STRING)
+    database.init_db(config.PG_CONNECTION_STRING, crdb_ca_cert_url=config.CRDB_CA_CERT_URL)
     inserted = 0
     skipped = 0
     try:

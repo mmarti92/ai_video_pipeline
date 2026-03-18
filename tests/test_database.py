@@ -109,3 +109,156 @@ class TestInsertJob:
         assert "INSERT" in sql.upper()
         assert params[0] == "TSLA"
         assert params[1] == "Tesla Analysis"
+
+
+# ---------------------------------------------------------------------------
+# SSL root certificate helper tests
+# ---------------------------------------------------------------------------
+
+class TestEnsureSslRootCert:
+    """Tests for _ensure_sslrootcert() and _find_ca_bundle()."""
+
+    DSN_VERIFY_FULL = (
+        "postgresql://u:p@host:26257/db?sslmode=verify-full"
+    )
+    DSN_VERIFY_CA = (
+        "postgresql://u:p@host:26257/db?sslmode=verify-ca"
+    )
+    DSN_REQUIRE = "postgresql://u:p@host:26257/db?sslmode=require"
+    DSN_NO_SSL = "postgresql://u:p@host:26257/db"
+
+    def test_noop_when_sslmode_not_verify(self):
+        import database
+        assert database._ensure_sslrootcert(self.DSN_REQUIRE) == self.DSN_REQUIRE
+        assert database._ensure_sslrootcert(self.DSN_NO_SSL) == self.DSN_NO_SSL
+
+    def test_noop_when_sslrootcert_already_present(self):
+        import database
+        dsn = self.DSN_VERIFY_FULL + "&sslrootcert=/custom/ca.crt"
+        assert database._ensure_sslrootcert(dsn) == dsn
+
+    def test_noop_when_default_root_cert_exists(self):
+        import database
+        with patch("os.path.isfile", return_value=True):
+            assert database._ensure_sslrootcert(self.DSN_VERIFY_FULL) == self.DSN_VERIFY_FULL
+
+    def test_appends_ca_bundle_for_verify_full(self):
+        import database
+        with (
+            patch("os.path.isfile", side_effect=lambda p: p == "/etc/ssl/certs/ca-certificates.crt"),
+            patch.object(database, "_DEFAULT_ROOT_CERT", "/nonexistent/.postgresql/root.crt"),
+        ):
+            result = database._ensure_sslrootcert(self.DSN_VERIFY_FULL)
+            assert "sslrootcert=" in result
+            assert "/etc/ssl/certs/ca-certificates.crt" in result
+
+    def test_appends_ca_bundle_for_verify_ca(self):
+        import database
+        with (
+            patch("os.path.isfile", side_effect=lambda p: p == "/etc/ssl/certs/ca-certificates.crt"),
+            patch.object(database, "_DEFAULT_ROOT_CERT", "/nonexistent/.postgresql/root.crt"),
+        ):
+            result = database._ensure_sslrootcert(self.DSN_VERIFY_CA)
+            assert "sslrootcert=" in result
+
+    def test_returns_unchanged_when_no_ca_bundle_found(self):
+        import database
+        with (
+            patch("os.path.isfile", return_value=False),
+            patch.object(database, "_DEFAULT_ROOT_CERT", "/nonexistent/.postgresql/root.crt"),
+            patch.dict(sys.modules, {"certifi": None}),
+        ):
+            result = database._ensure_sslrootcert(self.DSN_VERIFY_FULL)
+            assert result == self.DSN_VERIFY_FULL
+
+    def test_downloads_cert_when_url_provided(self):
+        import database
+        with (
+            patch.object(database, "_DEFAULT_ROOT_CERT", "/nonexistent/.postgresql/root.crt"),
+            patch.object(database, "_download_crdb_cert", return_value="/nonexistent/.postgresql/root.crt") as mock_dl,
+        ):
+            result = database._ensure_sslrootcert(
+                self.DSN_VERIFY_FULL,
+                crdb_ca_cert_url="https://example.com/cert",
+            )
+            mock_dl.assert_called_once_with("https://example.com/cert")
+            # Returns unchanged DSN (libpq will find the downloaded cert).
+            assert result == self.DSN_VERIFY_FULL
+
+    def test_falls_back_to_ca_bundle_when_download_fails(self):
+        import database
+        with (
+            patch.object(database, "_DEFAULT_ROOT_CERT", "/nonexistent/.postgresql/root.crt"),
+            patch.object(database, "_download_crdb_cert", return_value=None),
+            patch("os.path.isfile", side_effect=lambda p: p == "/etc/ssl/certs/ca-certificates.crt"),
+        ):
+            result = database._ensure_sslrootcert(
+                self.DSN_VERIFY_FULL,
+                crdb_ca_cert_url="https://example.com/cert",
+            )
+            assert "sslrootcert=" in result
+            assert "/etc/ssl/certs/ca-certificates.crt" in result
+
+    def test_find_ca_bundle_returns_first_match(self):
+        import database
+        with patch("os.path.isfile", side_effect=lambda p: p == "/etc/pki/tls/certs/ca-bundle.crt"):
+            assert database._find_ca_bundle() == "/etc/pki/tls/certs/ca-bundle.crt"
+
+    def test_find_ca_bundle_falls_back_to_certifi(self):
+        import database
+        fake_certifi = types.ModuleType("certifi")
+        fake_certifi.where = lambda: "/certifi/cacert.pem"
+        with (
+            patch("os.path.isfile", return_value=False),
+            patch.dict(sys.modules, {"certifi": fake_certifi}),
+        ):
+            assert database._find_ca_bundle() == "/certifi/cacert.pem"
+
+    def test_find_ca_bundle_returns_none_when_nothing_available(self):
+        import database
+        with (
+            patch("os.path.isfile", return_value=False),
+            patch.dict(sys.modules, {"certifi": None}),
+        ):
+            assert database._find_ca_bundle() is None
+
+
+class TestDownloadCrdbCert:
+    """Tests for _download_crdb_cert()."""
+
+    def test_skips_download_if_file_exists(self):
+        import database
+        with patch("os.path.isfile", return_value=True):
+            result = database._download_crdb_cert("https://example.com/cert")
+            assert result == database._DEFAULT_ROOT_CERT
+
+    def test_downloads_cert_on_success(self):
+        import database
+        mock_resp = MagicMock()
+        mock_resp.content = b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----"
+        mock_resp.raise_for_status = MagicMock()
+        with (
+            patch("os.path.isfile", return_value=False),
+            patch("os.makedirs"),
+            patch("database.requests.get", return_value=mock_resp) as mock_get,
+            patch("builtins.open", MagicMock()),
+        ):
+            result = database._download_crdb_cert("https://example.com/cert")
+            mock_get.assert_called_once_with("https://example.com/cert", timeout=30)
+            assert result == database._DEFAULT_ROOT_CERT
+
+    def test_returns_none_on_http_error(self):
+        import database
+        with (
+            patch("os.path.isfile", return_value=False),
+            patch("os.makedirs"),
+            patch("database.requests.get", side_effect=Exception("network error")),
+        ):
+            result = database._download_crdb_cert("https://example.com/cert")
+            assert result is None
+
+    def test_rejects_non_https_url(self):
+        import database
+        with patch("os.path.isfile", return_value=False):
+            result = database._download_crdb_cert("http://example.com/cert")
+            assert result is None

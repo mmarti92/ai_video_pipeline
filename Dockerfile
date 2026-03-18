@@ -2,8 +2,10 @@
 FROM python:3.12-slim AS base
 
 # ffmpeg is required by moviepy for video encoding
+# ca-certificates is required for CockroachDB Cloud TLS (sslmode=verify-full)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

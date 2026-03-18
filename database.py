@@ -8,11 +8,14 @@ against the `pipeline_videos_stocks_ia` table.
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import contextmanager
 from typing import Generator, Optional
+from urllib.parse import urlparse, parse_qs, urlunparse
 
 import psycopg2
 import psycopg2.extras
+import requests
 from psycopg2.pool import ThreadedConnectionPool
 
 logger = logging.getLogger(__name__)
@@ -22,11 +25,125 @@ TABLE_NAME = "pipeline_videos_stocks_ia"
 # Module-level connection pool (initialised by init_db)
 _pool: Optional[ThreadedConnectionPool] = None
 
+# Well-known CA bundle paths across Linux distributions and macOS.
+_CA_BUNDLE_CANDIDATES = [
+    "/etc/ssl/certs/ca-certificates.crt",  # Debian / Ubuntu
+    "/etc/pki/tls/certs/ca-bundle.crt",    # RHEL / CentOS / Fedora
+    "/etc/ssl/ca-bundle.pem",              # openSUSE
+    "/etc/ssl/cert.pem",                   # Alpine / macOS
+]
 
-def init_db(connection_string: str, min_conn: int = 1, max_conn: int = 5) -> None:
+# Default path where libpq looks for the root CA certificate.
+_DEFAULT_ROOT_CERT = os.path.expanduser("~/.postgresql/root.crt")
+
+
+def _download_crdb_cert(url: str) -> Optional[str]:
+    """Download the CockroachDB cluster CA cert to ``~/.postgresql/root.crt``.
+
+    Returns the path on success, or *None* on failure.  If the file
+    already exists it is **not** re-downloaded.  Only HTTPS URLs are
+    accepted to prevent insecure certificate downloads.
+    """
+    if os.path.isfile(_DEFAULT_ROOT_CERT):
+        logger.info("CockroachDB root cert already present at %s.", _DEFAULT_ROOT_CERT)
+        return _DEFAULT_ROOT_CERT
+
+    if not url.lower().startswith("https://"):
+        logger.warning("Refusing to download CA cert over insecure URL: %s", url)
+        return None
+
+    try:
+        os.makedirs(os.path.dirname(_DEFAULT_ROOT_CERT), exist_ok=True)
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+        with open(_DEFAULT_ROOT_CERT, "wb") as f:
+            f.write(resp.content)
+        logger.info("Downloaded CockroachDB root cert to %s.", _DEFAULT_ROOT_CERT)
+        return _DEFAULT_ROOT_CERT
+    except Exception:
+        logger.warning(
+            "Failed to download CockroachDB cert from %s.", url, exc_info=True
+        )
+        return None
+
+
+def _find_ca_bundle() -> Optional[str]:
+    """Locate the system CA certificate bundle."""
+    for path in _CA_BUNDLE_CANDIDATES:
+        if os.path.isfile(path):
+            return path
+    try:                           # pragma: no cover – certifi may not be installed
+        import certifi
+        return certifi.where()
+    except ImportError:
+        return None
+
+
+def _ensure_sslrootcert(
+    connection_string: str,
+    crdb_ca_cert_url: str = "",
+) -> str:
+    """Append ``sslrootcert`` to the DSN when CockroachDB Cloud needs it.
+
+    CockroachDB Cloud connection strings normally carry
+    ``sslmode=verify-full``.  libpq then looks for a root CA at
+    ``~/.postgresql/root.crt``, which rarely exists inside CI runners or
+    Docker containers.
+
+    Resolution order:
+
+    1. ``sslrootcert`` already in DSN → no-op.
+    2. ``~/.postgresql/root.crt`` already on disk → no-op (libpq finds it).
+    3. *crdb_ca_cert_url* is set → download the cluster cert to
+       ``~/.postgresql/root.crt`` and let libpq find it.
+    4. Fall back to appending the system CA bundle path.
+    """
+    parsed = urlparse(connection_string)
+    params = parse_qs(parsed.query)
+
+    sslmode = params.get("sslmode", [""])[0]
+    if sslmode not in ("verify-full", "verify-ca"):
+        return connection_string
+
+    if "sslrootcert" in params:
+        return connection_string
+
+    if os.path.isfile(_DEFAULT_ROOT_CERT):
+        return connection_string
+
+    # Try downloading the cluster-specific cert.
+    if crdb_ca_cert_url:
+        downloaded = _download_crdb_cert(crdb_ca_cert_url)
+        if downloaded:
+            # libpq will now find ~/.postgresql/root.crt automatically.
+            return connection_string
+
+    ca_bundle = _find_ca_bundle()
+    if ca_bundle is None:
+        logger.warning(
+            "sslmode=%s but no system CA bundle found; "
+            "the connection may fail.",
+            sslmode,
+        )
+        return connection_string
+
+    separator = "&" if parsed.query else ""
+    new_query = f"{parsed.query}{separator}sslrootcert={ca_bundle}"
+    result = urlunparse(parsed._replace(query=new_query))
+    logger.info("Appended sslrootcert=%s for TLS verification.", ca_bundle)
+    return result
+
+
+def init_db(
+    connection_string: str,
+    min_conn: int = 1,
+    max_conn: int = 5,
+    crdb_ca_cert_url: str = "",
+) -> None:
     """Initialise the connection pool and ensure the table exists."""
     global _pool
-    _pool = ThreadedConnectionPool(min_conn, max_conn, dsn=connection_string)
+    dsn = _ensure_sslrootcert(connection_string, crdb_ca_cert_url=crdb_ca_cert_url)
+    _pool = ThreadedConnectionPool(min_conn, max_conn, dsn=dsn)
     logger.info("Database connection pool initialised.")
     _create_table_if_not_exists()
 

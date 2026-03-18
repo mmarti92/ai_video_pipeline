@@ -51,7 +51,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    database.init_db(config.PG_CONNECTION_STRING)
+    database.init_db(config.PG_CONNECTION_STRING, crdb_ca_cert_url=config.CRDB_CA_CERT_URL)
 
     try:
         if args.seed:
