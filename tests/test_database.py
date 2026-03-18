@@ -256,3 +256,9 @@ class TestDownloadCrdbCert:
         ):
             result = database._download_crdb_cert("https://example.com/cert")
             assert result is None
+
+    def test_rejects_non_https_url(self):
+        import database
+        with patch("os.path.isfile", return_value=False):
+            result = database._download_crdb_cert("http://example.com/cert")
+            assert result is None

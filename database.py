@@ -41,11 +41,16 @@ def _download_crdb_cert(url: str) -> Optional[str]:
     """Download the CockroachDB cluster CA cert to ``~/.postgresql/root.crt``.
 
     Returns the path on success, or *None* on failure.  If the file
-    already exists it is **not** re-downloaded.
+    already exists it is **not** re-downloaded.  Only HTTPS URLs are
+    accepted to prevent insecure certificate downloads.
     """
     if os.path.isfile(_DEFAULT_ROOT_CERT):
         logger.info("CockroachDB root cert already present at %s.", _DEFAULT_ROOT_CERT)
         return _DEFAULT_ROOT_CERT
+
+    if not url.lower().startswith("https://"):
+        logger.warning("Refusing to download CA cert over insecure URL: %s", url)
+        return None
 
     try:
         os.makedirs(os.path.dirname(_DEFAULT_ROOT_CERT), exist_ok=True)
